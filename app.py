@@ -30,6 +30,28 @@ if not os.path.exists(ENV_PATH):
     open(ENV_PATH, "a").close()
 load_dotenv(ENV_PATH)
 
+
+def get_setting(key: str, default: str = "") -> str:
+    """
+    Read a setting from Streamlit Cloud's Secrets manager if deployed there,
+    otherwise fall back to the local .env file. This lets the same app.py
+    work both locally (via .env) and once deployed (via Cloud Secrets),
+    without needing separate code paths.
+    """
+    try:
+        if key in st.secrets:
+            return st.secrets[key]
+    except Exception:
+        pass  # no secrets.toml locally — that's expected, just fall through
+    return os.getenv(key, default)
+
+
+IS_CLOUD_DEPLOYMENT = False
+try:
+    IS_CLOUD_DEPLOYMENT = len(st.secrets) > 0
+except Exception:
+    pass
+
 # When someone asks for N leads, filtering (dedup, franchises, no-website-only,
 # closed businesses) will always remove some — so we fetch a bigger raw pool
 # up front and only trim down to N at the very end, after every filter has run.
@@ -54,31 +76,37 @@ with st.sidebar:
     with st.expander("Google Places (required for the Google source)", expanded=False):
         google_key = st.text_input(
             "Google Places API Key",
-            value=os.getenv("GOOGLE_PLACES_API_KEY", ""),
+            value=get_setting("GOOGLE_PLACES_API_KEY", ""),
             type="password",
             key="google_key",
         )
 
     with st.expander("Google Sheets (optional)", expanded=False):
         st.caption("Leave blank to skip pushing results to a Sheet.")
-        sheet_id = st.text_input("Google Sheet ID", value=os.getenv("GOOGLE_SHEET_ID", ""), key="sheet_id")
+        sheet_id = st.text_input("Google Sheet ID", value=get_setting("GOOGLE_SHEET_ID", ""), key="sheet_id")
         service_account_path = st.text_input(
             "Service account JSON file path",
-            value=os.getenv("GOOGLE_SERVICE_ACCOUNT_JSON", ""),
+            value=get_setting("GOOGLE_SERVICE_ACCOUNT_JSON", ""),
             key="service_account_path",
         )
 
     with st.expander("Email digest (optional)", expanded=False):
         st.caption("Leave blank to skip emailing results.")
-        smtp_host = st.text_input("SMTP host", value=os.getenv("SMTP_HOST", "smtp.gmail.com"), key="smtp_host")
-        smtp_port = st.text_input("SMTP port", value=os.getenv("SMTP_PORT", "587"), key="smtp_port")
-        smtp_user = st.text_input("SMTP user (your email)", value=os.getenv("SMTP_USER", ""), key="smtp_user")
+        smtp_host = st.text_input("SMTP host", value=get_setting("SMTP_HOST", "smtp.gmail.com"), key="smtp_host")
+        smtp_port = st.text_input("SMTP port", value=get_setting("SMTP_PORT", "587"), key="smtp_port")
+        smtp_user = st.text_input("SMTP user (your email)", value=get_setting("SMTP_USER", ""), key="smtp_user")
         smtp_password = st.text_input(
-            "SMTP app password", value=os.getenv("SMTP_PASSWORD", ""), type="password", key="smtp_password"
+            "SMTP app password", value=get_setting("SMTP_PASSWORD", ""), type="password", key="smtp_password"
         )
-        email_to = st.text_input("Send digest to", value=os.getenv("EMAIL_TO", ""), key="email_to")
+        email_to = st.text_input("Send digest to", value=get_setting("EMAIL_TO", ""), key="email_to")
 
-    if st.button("💾 Save settings", use_container_width=True):
+    if IS_CLOUD_DEPLOYMENT:
+        st.caption(
+            "Running on Streamlit Cloud — settings here are for this session only. "
+            "To make them permanent, add them under your app's **Settings → Secrets** "
+            "in the Streamlit Cloud dashboard instead."
+        )
+    elif st.button("💾 Save settings", use_container_width=True):
         _save_setting("GOOGLE_PLACES_API_KEY", google_key)
         _save_setting("GOOGLE_SHEET_ID", sheet_id)
         _save_setting("GOOGLE_SERVICE_ACCOUNT_JSON", service_account_path)
